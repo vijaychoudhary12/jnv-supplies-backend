@@ -1,0 +1,67 @@
+const jwt = require('jsonwebtoken');
+const asyncHandler = require('express-async-handler'); // To handle async errors without explicit try/catch
+const User = require('../models/user'); // Adjust path if your user model is in a different location
+
+// Middleware to protect routes (ensure user is logged in)
+const protect = asyncHandler(async (req, res, next) => {
+  let token;
+
+  // Check if token is in headers and starts with 'Bearer'
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    try {
+      // Get token from header
+      token = req.headers.authorization.split(' ')[1];
+
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // Attach user from the token payload (excluding password) to the request object
+      req.user = await User.findById(decoded.id).select('-password');
+
+      if (!req.user) {
+        res.status(401); // Unauthorized
+        throw new Error('Not authorized, user not found');
+      }
+
+      next(); // Proceed to the next middleware/route handler
+    } catch (error) {
+      console.error(error);
+      res.status(401); // Unauthorized
+      throw new Error('Not authorized, token failed');
+    }
+  }
+
+  if (!token) {
+    res.status(401); // Unauthorized
+    throw new Error('Not authorized, no token');
+  }
+});
+
+// Middleware to authorize users based on roles
+const authorize = (roles = []) => {
+  // roles can be a single role string or an array of roles
+  if (typeof roles === 'string') {
+    roles = [roles];
+  }
+
+  return (req, res, next) => {
+    // Check if user is authenticated (protect middleware should run before this)
+    if (!req.user) {
+      res.status(401); // Unauthorized
+      throw new Error('Not authorized, user not authenticated');
+    }
+
+    // Check if user's role is included in the allowed roles
+    if (roles.length > 0 && !roles.includes(req.user.role)) {
+      res.status(403); // Forbidden
+      throw new Error('Not authorized to access this route');
+    }
+
+    next(); // User has the required role, proceed
+  };
+};
+
+module.exports = {
+  protect,
+  authorize,
+};
